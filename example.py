@@ -31,9 +31,9 @@ print(x.shape, y.shape)
 # Training this model quickly converges
 
 model = keras.models.Sequential()
-model.add(DepthwiseConv1D(kernel_size = 10, padding = 'same', input_shape=shape[1:]))
+model.add(DepthwiseConv1D(kernel_size = 5, common_kernel = True, padding = 'same', input_shape=shape[1:]))
 model.add(keras.layers.ReLU())
-model.add(DepthwiseConv1D(kernel_size = 10, padding = 'same'))
+model.add(DepthwiseConv1D(kernel_size = 5, common_kernel =  False, padding = 'same'))
 model.add(keras.layers.ReLU())
 model.add(DepthwiseConv1D(kernel_size = 3, strides = 2))
 model.add(keras.layers.ReLU())

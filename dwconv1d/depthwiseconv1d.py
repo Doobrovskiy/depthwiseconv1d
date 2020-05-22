@@ -1,3 +1,4 @@
+import tensorflow as tf
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.keras import models, layers, initializers, regularizers, constraints
 from tensorflow.python.keras.layers import Conv1D
