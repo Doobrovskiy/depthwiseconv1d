@@ -21,6 +21,8 @@ from tensorflow.python.util.tf_export import keras_export
       length of the 1D convolution window.
     strides: An integer specifying the strides of the convolution.
     padding: one of `'valid'` or `'same'` (case-insensitive).
+    common_kernel: if set to True, same kernel is applied to each channel,
+      if False, separate kernel is applied to each channel (default case)
     depth_multiplier: The number of depthwise convolution output channels
       for each input channel.
       The total number of depthwise convolution output
@@ -76,6 +78,7 @@ class DepthwiseConv1D(Conv1D):
                 kernel_size,
                 strides=1,
                 padding='valid',
+                common_kernel = False,
                 depth_multiplier=1,
                 data_format=None,
                 activation=None,
@@ -101,6 +104,7 @@ class DepthwiseConv1D(Conv1D):
                 bias_constraint=bias_constraint,
                 **kwargs)
         
+        self.common_kernel = common_kernel
         self.depth_multiplier = depth_multiplier
         self.depthwise_initializer = initializers.get(depthwise_initializer)
         self.depthwise_regularizer = regularizers.get(depthwise_regularizer)
@@ -123,9 +127,12 @@ class DepthwiseConv1D(Conv1D):
         if input_shape.dims[channel_axis].value is None:
             raise ValueError('The channel dimension of the inputs to '
                        '`DepthwiseConv1D` should be defined. Found `None`.')
-        input_dim = int(input_shape[channel_axis])
-        depthwise_kernel_shape = (self.kernel_size[0], input_dim, self.depth_multiplier)
+        input_dim = int(input_shape[channel_axis]) 
+        kernel_dim = 1 if self.common_kernel==True else input_dim
+        depthwise_kernel_shape = (self.kernel_size[0], kernel_dim , self.depth_multiplier)
 
+        self.channels = input_dim
+        
         self.depthwise_kernel = self.add_weight(
             shape=depthwise_kernel_shape,
             initializer=self.depthwise_initializer,
@@ -134,7 +141,7 @@ class DepthwiseConv1D(Conv1D):
             constraint=self.depthwise_constraint)
 
         if self.use_bias:
-            self.bias = self.add_weight(shape=(input_dim * self.depth_multiplier,),
+            self.bias = self.add_weight(shape=(kernel_dim * self.depth_multiplier,),
                 initializer=self.bias_initializer,
                 name='bias',
                 regularizer=self.bias_regularizer,
@@ -156,15 +163,24 @@ class DepthwiseConv1D(Conv1D):
 
         # Explicitly broadcast inputs and kernels to 4D.
         inputs = array_ops.expand_dims(inputs, spatial_start_dim)
-        depthwise_kernel = array_ops.expand_dims(self.depthwise_kernel, 0)
-
+        
+        if self.common_kernel == True:
+            #Need to replicate kernel {channels} times over axis 1
+            dw_kernel = tf.tile(self.depthwise_kernel, (1, self.channels, 1))
+            bias_kernel = tf.tile(self.bias, (self.channels, ))
+        else:
+            dw_kernel = self.depthwise_kernel
+            bias_kernel = self.bias
+            
+        dw_kernel = array_ops.expand_dims(dw_kernel, 0)
+        
         if self.padding == 'causal':
             op_padding = 'valid'
         else:
             op_padding = self.padding
         outputs = nn.depthwise_conv2d(
             inputs,
-            depthwise_kernel,
+            dw_kernel,
             strides=strides,
             padding=op_padding.upper(),
             data_format=conv_utils.convert_data_format(self.data_format, ndim=4))
@@ -172,14 +188,14 @@ class DepthwiseConv1D(Conv1D):
         outputs = array_ops.squeeze(outputs, [spatial_start_dim])
 
         if self.use_bias:
-            outputs = backend.bias_add(outputs, self.bias, data_format=self.data_format)
-
+            outputs = backend.bias_add(outputs, bias_kernel, data_format=self.data_format)
+            
         if self.activation is not None:
             return self.activation(outputs)
 
         return outputs
 
-#  @tf_utils.shape_type_conversion
+    @tf_utils.shape_type_conversion
     def compute_output_shape(self, input_shape):
         if self.data_format == 'channels_first':
             length = input_shape[2]
